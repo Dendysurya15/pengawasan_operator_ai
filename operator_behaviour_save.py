@@ -8,9 +8,6 @@ import sqlite3
 from datetime import datetime, date, timedelta
 import json
 
-conn = sqlite3.connect('operator_behaviour.db')
-cursor = conn.cursor()
-
 def setup_database():
     try:
         subprocess.run([sys.executable, "setup_database.py"], check=True)
@@ -39,7 +36,39 @@ def get_existing_data():
         return json.loads(result[0])
     return None
 
+def draw_rectangle(frame, area):
+    points = np.array(area['coords'], dtype=np.int32).reshape((-1, 1, 2))
+    cv2.polylines(frame, [points], isClosed=True, color=area['color'], thickness=2)
+    x, y = area['coords'][0]
+    cv2.putText(frame, area['title'], (x + 10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, area['color'], 3, cv2.LINE_AA)
+    detection_text = f"Persons: {area['count']}, Duration: {format_time(area['duration'])}"
+    cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, area['color'], 2, cv2.LINE_AA)
+
+def save_to_database():
+    uptime_data = [{"area": area, "time": format_time(areas[area]['duration'])} for area in areas if area != 'no_person']
+    uptime_data.append({"area": "no_person", "time": format_time(total_unattended_time)})
+    uptime_json = json.dumps(uptime_data)
+    
+    cursor.execute('''
+        UPDATE pengawasan_operator 
+        SET uptime = ? 
+        WHERE date = ? AND machine_id = ?
+    ''', (uptime_json, today_date, machine_id))
+    
+    if cursor.rowcount == 0:
+        cursor.execute('''
+            INSERT INTO pengawasan_operator (date, machine_id, uptime)
+            VALUES (?, ?, ?)
+        ''', (today_date, machine_id, uptime_json))
+    
+    conn.commit()
+    print(f"Data successfully updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 setup_database()
+
+conn = sqlite3.connect('operator_behaviour.db')
+cursor = conn.cursor()
+
 model = YOLO("yolov8m.pt")
 today_date = date.today().strftime("%Y-%m-%d")
 
@@ -54,14 +83,6 @@ if not cap.isOpened():
 
 prev_time = time.time()
 fps = 0
-
-def draw_rectangle(frame, area):
-    points = np.array(area['coords'], dtype=np.int32).reshape((-1, 1, 2))
-    cv2.polylines(frame, [points], isClosed=True, color=area['color'], thickness=2)
-    x, y = area['coords'][0]
-    cv2.putText(frame, area['title'], (x + 10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, area['color'], 3, cv2.LINE_AA)
-    detection_text = f"Persons: {area['count']}, Duration: {format_time(area['duration'])}"
-    cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, area['color'], 2, cv2.LINE_AA)
 
 areas = {
     'panel': {
@@ -114,30 +135,8 @@ if existing_data:
             if area_data['area'] == 'no_person':
                 total_unattended_time = time_to_seconds(area_data['time'])
 
-def save_to_database():
-    uptime_data = [{"area": area, "time": format_time(areas[area]['duration'])} for area in areas if area != 'no_person']
-    uptime_data.append({"area": "no_person", "time": format_time(total_unattended_time)})
-    uptime_json = json.dumps(uptime_data)
-    
-    cursor.execute('''
-        UPDATE pengawasan_operator 
-        SET uptime = ? 
-        WHERE date = ? AND machine_id = ?
-    ''', (uptime_json, today_date, machine_id))
-    
-    if cursor.rowcount == 0:
-        cursor.execute('''
-            INSERT INTO pengawasan_operator (date, machine_id, uptime)
-            VALUES (?, ?, ?)
-        ''', (today_date, machine_id, uptime_json))
-    
-    conn.commit()
-    print(f"Data successfully updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-save_interval = timedelta(seconds=30, minutes=0)
+save_interval = timedelta(seconds=10, minutes=0)
 last_save_time = datetime.now()
-
-
 
 while True:
     ret, frame = cap.read()
@@ -158,6 +157,8 @@ while True:
         if 'count' in area:
             area['count'] = 0
 
+    detected_areas = set()  # Keep track of areas where objects are detected
+
     for result in results[0].boxes.data:
         x1, y1, x2, y2, conf, class_id = result.tolist()[:6]
         
@@ -167,8 +168,10 @@ while True:
             
             for area_name, area in areas.items():
                 if 'coords' in area and (area['y_min'] < center_y < area['y_max'] and area['x_min'] < center_x < area['x_max']):
-                    area['count'] += 1
-                    area['duration'] += elapsed_time
+                    if area_name not in detected_areas:
+                        area['count'] += 1
+                        area['duration'] += elapsed_time
+                        detected_areas.add(area_name)
                     break
 
     if not person_detected:

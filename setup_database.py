@@ -8,6 +8,31 @@ def create_database():
     
     cursor.execute("PRAGMA foreign_keys = ON")
     
+    # Create the 'machine' table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS machine (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            description TEXT,
+            location TEXT,
+            mill TEXT,
+            last_online TEXT,
+            status TEXT,
+            coordinate TEXT
+        )
+    ''')
+    
+    # Create the 'pengawasan_operator' table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pengawasan_operator (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            machine_id INTEGER,
+            uptime TEXT,
+            FOREIGN KEY (machine_id) REFERENCES machine(id)
+        )
+    ''')
+
     # Existing tables...
 
     cursor.execute('''
@@ -32,8 +57,6 @@ def create_database():
             FOREIGN KEY (machine_id) REFERENCES machine(id)
         )
     ''')
-
-    # Rest of the existing code...
 
     conn.commit()
     conn.close()
