@@ -89,9 +89,9 @@ def run_python_file(env_name, file_path, open_dir_process):
         #     close_directory(open_dir_process)
         #     break
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     # Define the base directory
-    base_dir = r'C:\Users\User\Documents\yolov8ffb-db_sqlite'
+    base_dir = r'C:\Users\User\Documents\pengawasan_operator_ai'
     
     # Define directories and paths using the base directory
     open_dir = base_dir

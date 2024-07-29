@@ -5,11 +5,12 @@ import sys
 import logging
 import aiohttp
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date  # Added 'date' here
 import pytz
 from pathlib import Path
 import requests
 import sqlite3
+import subprocess
 
 # Configure logging
 logging.basicConfig(
@@ -95,7 +96,7 @@ def send_data_to_api(data):
     else:
         print(f"Failed to send data. Status code: {response.status_code}")
 
-base_dir = r'C:\Users\User\Documents\yolov8ffb-db_sqlite'
+base_dir = r'C:\Users\User\Documents\pengawasan_operator_ai'
 
 if __name__ == "__main__":
     # Define the base directory
