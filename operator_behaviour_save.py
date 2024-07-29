@@ -135,7 +135,7 @@ if existing_data:
             if area_data['area'] == 'no_person':
                 total_unattended_time = time_to_seconds(area_data['time'])
 
-save_interval = timedelta(seconds=10, minutes=0)
+save_interval = timedelta(seconds=30, minutes=0)
 last_save_time = datetime.now()
 
 while True:
