@@ -45,10 +45,10 @@ def draw_rectangle(frame, area):
     cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, area['color'], 2, cv2.LINE_AA)
 
 def save_to_database():
-    uptime_data = [{"area": area, "time": format_time(areas[area]['duration'])} for area in areas if area != 'no_person']
-    uptime_data.append({"area": "no_person", "time": format_time(total_unattended_time)})
+    uptime_data = [{"area": areas[area]['title'], "time": format_time(areas[area]['duration'])} for area in areas if area != 'no_person']
+    uptime_data.append({"area": areas['no_person']['title'], "time": format_time(total_unattended_time)})
     uptime_json = json.dumps(uptime_data)
-    
+
     cursor.execute('''
         UPDATE pengawasan_operator 
         SET uptime = ? 

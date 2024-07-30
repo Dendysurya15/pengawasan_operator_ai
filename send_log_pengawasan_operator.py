@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 API_URL = "https://srs-ssms.com/op_monitoring/insert_log_pengawasan_operator.php"
 DB_PATH = "operator_behaviour.db"
-MACHINE_ID = 1
+MACHINE_ID = 2
 INTERVAL = timedelta(minutes=5)
 
 def get_data_from_db():
