@@ -8,7 +8,6 @@ def create_database():
     
     cursor.execute("PRAGMA foreign_keys = ON")
     
-    # Create the 'machine' table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS machine (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,7 +21,6 @@ def create_database():
         )
     ''')
     
-    # Create the 'pengawasan_operator' table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pengawasan_operator (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,8 +30,6 @@ def create_database():
             FOREIGN KEY (machine_id) REFERENCES machine(id)
         )
     ''')
-
-    # Existing tables...
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS unattended (
@@ -57,10 +53,40 @@ def create_database():
             FOREIGN KEY (machine_id) REFERENCES machine(id)
         )
     ''')
-
+    
+    # Fetch data from API
+    api_url = "https://srs-ssms.com/op_monitoring/get_list_machine.php"
+    try:
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        machines = json.loads(response.text)
+        
+        # Insert or update machine data
+        for machine in machines:
+            cursor.execute('''
+                INSERT OR REPLACE INTO machine 
+                (id, name, description, location, mill, last_online, status, coordinate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                machine['id'], machine['name'], machine['description'], 
+                machine['location'], machine['mill'], machine['last_online'], 
+                machine['status'], machine['coordinate']
+            ))
+        
+        print("Machine data updated successfully.")
+    except requests.RequestException as e:
+        print(f"Error fetching data from API: {e}")
+        print("Database setup completed without updating machine data.")
+    except json.JSONDecodeError:
+        print("Error decoding JSON from API response.")
+        print("Database setup completed without updating machine data.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        print("Database setup completed without updating machine data.")
+    
     conn.commit()
     conn.close()
-    print("Database setup complete with new tables.")
+    print("Database setup complete.")
 
 if __name__ == "__main__":
     create_database()
