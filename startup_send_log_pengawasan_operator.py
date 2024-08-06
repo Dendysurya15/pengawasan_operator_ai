@@ -6,7 +6,9 @@ import sys
 def run_send_log_script(script_dir):
     script_path = os.path.join(script_dir, "send_log_pengawasan_operator.py")
     try:
-        subprocess.run([sys.executable, script_path], check=True)
+        subprocess.run([sys.executable, script_path,
+                        "--script_dir", script_dir,
+                        ], check=True)
         print(f"Script '{script_path}' executed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error running '{script_path}': {e}")
