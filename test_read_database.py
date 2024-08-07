@@ -14,7 +14,7 @@ def read_database():
         print(f"- Column {cid} ('{name}') - Type: {type}, Not Null: {bool(notnull)}, Primary Key: {bool(pk)}, Default Value: {default_value}")
 
     print("\nLast 10 entries in the 'pengawasan_operator' table:")
-    cursor.execute("SELECT * FROM pengawasan_operator LIMIT 10")
+    cursor.execute("SELECT * FROM machine LIMIT 10")
     rows = cursor.fetchall()
 
     for row in rows:

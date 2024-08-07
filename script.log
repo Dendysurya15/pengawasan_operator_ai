@@ -1,0 +1,20 @@
+2024-07-29 15:32:51,253 - INFO - Starting the script...
+2024-07-29 15:32:51,253 - INFO - Conda path found: C:\ProgramData\anaconda3\Scripts\conda.exe
+2024-07-29 15:33:08,604 - INFO - Starting the script...
+2024-07-29 15:33:08,604 - INFO - Conda path found: C:\ProgramData\anaconda3\Scripts\conda.exe
+2024-07-29 15:33:08,608 - ERROR - Failed to activate environment yolov8: Command '"C:\ProgramData\anaconda3\Scripts\conda.exe" activate yolov8' returned non-zero exit status 127.
+2024-07-29 15:33:08,608 - ERROR - Failed to open directory C:\Users\User\Documents\yolov8ffb-db_sqlite: [Errno 2] No such file or directory: 'explorer'
+2024-07-29 15:37:24,882 - INFO - Starting the script...
+2024-07-29 15:37:24,882 - INFO - Conda path found: C:\ProgramData\anaconda3\Scripts\conda.exe
+2024-07-29 15:37:36,030 - INFO - Starting the script...
+2024-07-29 15:37:36,030 - INFO - Conda path found: C:\ProgramData\anaconda3\Scripts\conda.exe
+2024-07-29 15:37:36,032 - ERROR - Failed to activate environment yolov8: Command '"C:\ProgramData\anaconda3\Scripts\conda.exe" activate yolov8' returned non-zero exit status 127.
+2024-07-29 15:37:36,033 - ERROR - Failed to open directory C:\Users\User\Documents\yolov8ffb-db_sqlite: [Errno 2] No such file or directory: 'explorer'
+2024-07-29 15:37:36,034 - DEBUG - Starting new HTTPS connection (1): srs-ssms.com:443
+2024-07-29 15:37:36,371 - DEBUG - https://srs-ssms.com:443 "POST /op_monitoring/insert_log_pengawasan_operator.php HTTP/1.1" 200 None
+2024-07-29 15:37:49,289 - INFO - Starting the script...
+2024-07-29 15:37:49,289 - INFO - Conda path found: C:\ProgramData\anaconda3\Scripts\conda.exe
+2024-07-29 15:37:49,292 - ERROR - Failed to activate environment yolov8: Command '"C:\ProgramData\anaconda3\Scripts\conda.exe" activate yolov8' returned non-zero exit status 127.
+2024-07-29 15:37:49,293 - ERROR - Failed to open directory C:\Users\User\Documents\yolov8ffb-db_sqlite: [Errno 2] No such file or directory: 'explorer'
+2024-07-29 15:37:49,294 - DEBUG - Starting new HTTPS connection (1): srs-ssms.com:443
+2024-07-29 15:37:49,906 - DEBUG - https://srs-ssms.com:443 "POST /op_monitoring/insert_log_pengawasan_operator.php HTTP/1.1" 200 None

@@ -4,11 +4,16 @@ import cv2
 from ultralytics import YOLO
 import time
 import numpy as np
+from dateutil import tz
 import sqlite3
 from datetime import datetime, date, timedelta
 import json
 import argparse
 import os
+import pusher
+
+pusher_client = pusher.Pusher(app_id=u'1841216', key=u'b193dcd8922273835547', secret=u'5e39e309c9ee6a995b84', cluster=u'ap1')
+
 
 def setup_database(script_dir):
     try:
@@ -47,6 +52,23 @@ def draw_rectangle(frame, area):
     detection_text = f"Persons: {area['count']}, Duration: {format_time(area['duration'])}"
     cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, area['color'], 2, cv2.LINE_AA)
 
+def get_machine_location(machine_id):
+
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT location FROM machine
+        WHERE id = ?
+    ''', (machine_id,))
+
+    result = cursor.fetchone()
+    
+
+    if result:
+        return result[0]
+    else:
+        return None
+    
 def save_to_database():
     uptime_data = [{"area": areas[area]['title'], "time": format_time(areas[area]['duration'])} for area in areas if area != 'No Person']
     uptime_data.append({"area": areas['No Person']['title'], "time": format_time(total_unattended_time)})
@@ -67,12 +89,47 @@ def save_to_database():
     conn.commit()
     print(f"Data successfully updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+def capture_screenshot(annotated_frame, screenshot_dir, compression_quality = 80):
+    current_datetime = datetime.now()
+    screenshot_folder = os.path.join(screenshot_dir, current_datetime.strftime("%Y_%m_%d"))
+    os.makedirs(screenshot_folder, exist_ok=True)
+    screenshot_filename = current_datetime.strftime("%Y_%m_%d_%H_%M_%S") + ".jpg"
+    screenshot_path = os.path.join(screenshot_folder, screenshot_filename)
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), compression_quality]
+    _, encoded_frame = cv2.imencode('.jpg', annotated_frame, encode_param)
+
+    # Save the compressed frame to disk
+    with open(screenshot_path, 'wb') as f:
+        f.write(encoded_frame)
+
+    print(f"Screenshot saved: {screenshot_path}")
+    return screenshot_filename
+
+def hit_api_bot(fileName):
+
+    jakarta_tz = tz.gettz('Asia/Jakarta')
+    current_datetime = datetime.now(jakarta_tz)
+
+    formatted_datetime = current_datetime.strftime("%A, %d %B %Y %H:%M")
+    machine_location = get_machine_location(machine_id)
+    if machine_location:
+        pusher_client.trigger(u'operator-missing', u'python', {
+            u'date': formatted_datetime,
+            u'location': machine_location,
+            u'fileName': fileName
+        })
+    else:
+        print("Error: Could not retrieve machine location from the database.")
+    # pusher_client.trigger(u'channel_trigger_bot_api', u'python', {u'some': u'love u'})
+    
 def main():
     parser = argparse.ArgumentParser(description="AI-based operator monitoring system.")
     default_directory = os.getcwd()
     parser.add_argument("--script_dir", type=str, default=default_directory, help="Directory containing setup_database.py")
     parser.add_argument("--machine_id", type=int, default=2, help="ID of the machine being monitored")
-    parser.add_argument("--yolo-model", type=str, default="yolov8m.pt", help="YOLO model file to use")
+    parser.add_argument("--yolo-model", type=str, default="yolov8m-seg.pt", help="YOLO model file to use")
+    parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
+    parser.add_argument("--conf", type=float, default=0.9, help="Confidence threshold for object detection")
     args = parser.parse_args()
     
     setup_database(args.script_dir)
@@ -137,7 +194,7 @@ def main():
 
     unattended_start_time = None
     unattended_threshold = 5  # seconds
-    threshold_call_bot = 15 * 60
+    threshold_call_bot = timedelta(seconds=5)  
     total_unattended_time = 0
     unattended_watcher = 0
     existing_data = get_existing_data()
@@ -161,7 +218,7 @@ def main():
             break
 
         start_time = time.time()
-        results = model.predict(frame, classes=[0], imgsz=640, conf=0.1, verbose=False)
+        results = model.predict(frame, classes=[0], imgsz=args.imgsz, conf=args.conf, verbose=False)
 
         person_detected = False
         current_time = datetime.now()
@@ -183,19 +240,25 @@ def main():
                 
                 for area_name, area in areas.items():
                     if 'coords' in area and (area['y_min'] < center_y < area['y_max'] and area['x_min'] < center_x < area['x_max']):
-                        if area_name not in detected_areas:
-                            area['count'] += 1
-                            area['duration'] += elapsed_time
-                            detected_areas.add(area_name)
+                        area['count'] += 1  # Increment the count for each bounding box in the area
+                        detected_areas.add(area_name)
                         break
 
         if not person_detected:
             if unattended_start_time is None:
                 unattended_start_time = current_time
-            elif (current_time - unattended_start_time).total_seconds() >= unattended_threshold:
+            if (current_time - unattended_start_time).total_seconds() >= unattended_threshold:
                 total_unattended_time += elapsed_time
                 unattended_watcher += elapsed_time
                 areas['No Person']['duration'] = total_unattended_time
+                if unattended_watcher >= threshold_call_bot.total_seconds():
+
+                    screenshot_dir = "screenshots"
+                    compression_quality = 60
+                    print('calling api bot')
+                    file_name = capture_screenshot(annotated_frame, screenshot_dir , compression_quality)
+                    hit_api_bot(file_name)
+                    unattended_watcher = 0
         else:
             if unattended_start_time is not None:
                 unattended_start_time = None
@@ -213,7 +276,7 @@ def main():
         cv2.putText(annotated_frame, f'FPS: {fps:.2f}', (10, height - 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(annotated_frame, f'No Person: {format_time(unattended_watcher)}', (10, height - 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(annotated_frame, f'Total Unattended: {format_time(total_unattended_time)}', (10, height - 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-
+        cv2.putText(annotated_frame, f'imgsz: {args.imgsz}, conf: {args.conf}, model: {args.yolo_model}', (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
         cv2.imshow(window_name, annotated_frame)
 
         if (current_time - last_save_time) >= save_interval:
