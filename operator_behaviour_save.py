@@ -103,7 +103,7 @@ def capture_screenshot(annotated_frame, screenshot_dir, compression_quality = 80
         f.write(encoded_frame)
 
     print(f"Screenshot saved: {screenshot_path}")
-    return screenshot_filename
+    return screenshot_filename, screenshot_path
 
 def hit_api_bot(fileName):
 
@@ -121,15 +121,25 @@ def hit_api_bot(fileName):
     else:
         print("Error: Could not retrieve machine location from the database.")
     # pusher_client.trigger(u'channel_trigger_bot_api', u'python', {u'some': u'love u'})
-    
+
+def send_screenshot(screenshot_path):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    send_screenshot_script = os.path.join(script_dir, "send_screenshot_pengawasan_operator.py")
+
+    try:
+        subprocess.run([sys.executable, send_screenshot_script, "--file", screenshot_path], check=True)
+        print("Screenshot sent successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error sending screenshot: {e}")
+ 
 def main():
     parser = argparse.ArgumentParser(description="AI-based operator monitoring system.")
     default_directory = os.getcwd()
     parser.add_argument("--script_dir", type=str, default=default_directory, help="Directory containing setup_database.py")
     parser.add_argument("--machine_id", type=int, default=2, help="ID of the machine being monitored")
-    parser.add_argument("--yolo-model", type=str, default="yolov8m-seg.pt", help="YOLO model file to use")
+    parser.add_argument("--yolo-model", type=str, default="yolov8m.pt", help="YOLO model file to use")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
-    parser.add_argument("--conf", type=float, default=0.9, help="Confidence threshold for object detection")
+    parser.add_argument("--conf", type=float, default=0.1, help="Confidence threshold for object detection")
     args = parser.parse_args()
     
     setup_database(args.script_dir)
@@ -194,11 +204,11 @@ def main():
 
     unattended_start_time = None
     unattended_threshold = 5  # seconds
-    threshold_call_bot = timedelta(seconds=5)  
+    threshold_call_bot = timedelta(minutes=15)  
     total_unattended_time = 0
     unattended_watcher = 0
     existing_data = get_existing_data()
-    print(existing_data)
+    
     if existing_data:
         for area_data in existing_data:
             if area_data['area'] in areas:
@@ -255,8 +265,9 @@ def main():
 
                     screenshot_dir = "screenshots"
                     compression_quality = 60
-                    print('calling api bot')
-                    file_name = capture_screenshot(annotated_frame, screenshot_dir , compression_quality)
+                    file_name, screenshot_path = capture_screenshot(annotated_frame, screenshot_dir, compression_quality)
+                    send_screenshot(screenshot_path)
+                    time.sleep(1.5) 
                     hit_api_bot(file_name)
                     unattended_watcher = 0
         else:
