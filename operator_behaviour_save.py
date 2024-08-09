@@ -282,7 +282,8 @@ def main():
                 
                 for area_name, area in areas.items():
                     if 'coords' in area and (area['y_min'] < center_y < area['y_max'] and area['x_min'] < center_x < area['x_max']):
-                        area['count'] += 1  # Increment the count for each bounding box in the area
+                        area['count'] += 1
+                        area['duration'] += elapsed_time
                         detected_areas.add(area_name)
                         break
             #####
