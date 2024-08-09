@@ -131,6 +131,19 @@ def send_screenshot(screenshot_path):
         print("Screenshot sent successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error sending screenshot: {e}")
+
+
+def is_box_in_area(box, area_points):
+    """
+    Check if a bounding box (x_min, y_min, x_max, y_max) is inside a polygon area.
+    """
+    x_min, y_min, x_max, y_max = box
+    box_center = ((x_min + x_max) / 2, (y_min + y_max) / 2)
+    
+    # Use cv2.pointPolygonTest to determine if the box center is inside the polygon
+    result = cv2.pointPolygonTest(np.array(area_points), box_center, False)
+    
+    return result >= 0  # If result is 1 or 0, the point is inside or on the edge of the polygon
  
 def main():
     parser = argparse.ArgumentParser(description="AI-based operator monitoring system.")
@@ -193,6 +206,11 @@ def main():
         }
     }
 
+    # ex_areas = [
+    #     {"name": "Area 1", "points":  [730, 300], [1500, 300], [1500, 1200], [230, 900]}  # Example rectangle
+    #     # Add more areas as needed
+    # ]
+
     for area in areas.values():
         if 'coords' in area:
             area['x_min'], area['x_max'] = min(coord[0] for coord in area['coords']), max(coord[0] for coord in area['coords'])
@@ -229,6 +247,7 @@ def main():
 
         start_time = time.time()
         results = model.predict(frame, classes=[0], imgsz=args.imgsz, conf=args.conf, verbose=False)
+        class_names = model.names  # This returns a list of class names
 
         person_detected = False
         current_time = datetime.now()
@@ -241,19 +260,75 @@ def main():
 
         detected_areas = set()  # Keep track of areas where objects are detected
 
+        color = (0,255,0)
+
         for result in results[0].boxes.data:
             x1, y1, x2, y2, conf, class_id = result.tolist()[:6]
+
+            # print(str(result.tolist()))
             
             if int(class_id) == 0:
                 person_detected = True
                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+                # exclude_detection = False
+                # for ex_area in ex_areas:
+                #     if is_box_in_area((x_min, y_min, x_max, y_max), area["points"]):
+                #         exclude_detection = True
+                #         break
+                
+                # if exclude_detection:
+                #     continue  # Skip this detection if it's in an excluded area
                 
                 for area_name, area in areas.items():
                     if 'coords' in area and (area['y_min'] < center_y < area['y_max'] and area['x_min'] < center_x < area['x_max']):
                         area['count'] += 1  # Increment the count for each bounding box in the area
                         detected_areas.add(area_name)
                         break
+            #####
+            p1 = (int(x1), int(y1))  # top-left corner
+            p2 = (int(x2), int(y2))  # bottom-right corner  
+            cv2.rectangle(frame, p1, p2, color, thickness=1, lineType=cv2.LINE_AA)
 
+            # Adjust text parameters
+            label = f"{class_names[class_id]} {conf:.2f}"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1
+            font_thickness = 2
+            
+            # Get text size
+            (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
+            
+            # Calculate background rectangle dimensions
+            padding = 0
+            bg_width = text_width + 2 * padding
+            bg_height = text_height + 2 * padding
+
+            # Calculate background rectangle coordinates
+            bg_left = p1[0]
+            bg_top = p1[1] - bg_height - 1 if p1[1] - bg_height - 1 > 0 else p1[1]
+            bg_right = bg_left + bg_width
+            bg_bottom = bg_top + bg_height
+
+            # Draw background rectangle
+            cv2.rectangle(frame, (bg_left, bg_top-15), (bg_right, bg_bottom), color, -1, cv2.LINE_AA)
+
+            # Calculate text position
+            text_left = bg_left + padding
+            text_bottom = bg_bottom - padding - baseline
+
+            # Draw text
+            cv2.putText(
+                frame,
+                label,
+                (text_left, text_bottom),
+                font,
+                font_scale,
+                (255, 255, 255),
+                font_thickness,
+                lineType=cv2.LINE_AA,
+            )
+            #####
         if not person_detected:
             if unattended_start_time is None:
                 unattended_start_time = current_time
@@ -276,10 +351,13 @@ def main():
             unattended_watcher = 0
             areas['No Person']['duration'] = 0
 
-        annotated_frame = results[0].plot()
+        annotated_frame = frame
         for area_name, area in areas.items():
             if 'coords' in area:    
                 draw_rectangle(annotated_frame, area)
+
+        # for ex_area in ex_areas:
+        #     draw_rectangle(annotated_frame, ex_area)
 
         fps = 1 / elapsed_time if elapsed_time > 0 else 0
 
