@@ -45,12 +45,33 @@ def get_existing_data():
     return None
 
 def draw_rectangle(frame, area):
+    # Default settings
+    line_thickness = 2
+    font_scale = 0.7
+    font_thickness = 2
+    
+    draw_detection = True
+    # Check if the area has 'must_detect' and is False
+    if 'must_detect' in area and not area['must_detect']:
+    
+        draw_detection = False
+        line_thickness = 1  # Thinner line
+        font_scale = 0.5   # Smaller font size
+        font_thickness = 1  # Thinner font
+
+    # Draw the rectangle
     points = np.array(area['coords'], dtype=np.int32).reshape((-1, 1, 2))
-    cv2.polylines(frame, [points], isClosed=True, color=area['color'], thickness=2)
+    cv2.polylines(frame, [points], isClosed=True, color=area['color'], thickness=line_thickness)
+    
+    
     x, y = area['coords'][0]
-    cv2.putText(frame, area['title'], (x + 10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, area['color'], 3, cv2.LINE_AA)
-    detection_text = f"Persons: {area['count']}, Duration: {format_time(area['duration'])}"
-    cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, area['color'], 2, cv2.LINE_AA)
+    cv2.putText(frame, area['title'], (x + 10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, font_scale, area['color'], font_thickness, cv2.LINE_AA)
+
+    if draw_detection:
+        detection_text = f"Persons: {area['count']}, Duration: {format_time(area['duration'])}"
+        cv2.putText(frame, detection_text, (x + 10, y + 60), cv2.FONT_HERSHEY_SIMPLEX, font_scale, area['color'], font_thickness, cv2.LINE_AA)
+    
+
 
 def get_machine_location(machine_id):
 
@@ -70,10 +91,17 @@ def get_machine_location(machine_id):
         return None
     
 def save_to_database():
-    uptime_data = [{"area": areas[area]['title'], "time": format_time(areas[area]['duration'])} for area in areas if area != 'No Person']
-    uptime_data.append({"area": areas['No Person']['title'], "time": format_time(total_unattended_time)})
-    uptime_json = json.dumps(uptime_data)
+    uptime_data = [
+        {"area": areas[area]['title'], "time": format_time(areas[area]['duration'])}
+        for area in areas
+        if area != 'No Person' and (areas[area].get('must_detect', True) is True)
+    ]
 
+    if 'No Person' in areas:
+        uptime_data.append({"area": areas['No Person']['title'], "time": format_time(total_unattended_time)})
+
+    uptime_json = json.dumps(uptime_data)
+    
     cursor.execute('''
         UPDATE pengawasan_operator 
         SET uptime = ? 
@@ -122,6 +150,46 @@ def hit_api_bot(fileName):
         print("Error: Could not retrieve machine location from the database.")
     # pusher_client.trigger(u'channel_trigger_bot_api', u'python', {u'some': u'love u'})
 
+def draw_box(frame, p1, p2, label, color):
+    """Draws a rectangle and label text on the frame."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1
+    font_thickness = 2
+    
+    # Get text size
+    (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
+    
+    # Calculate background rectangle dimensions
+    padding = 0
+    bg_width = text_width + 2 * padding
+    bg_height = text_height + 2 * padding
+
+    # Calculate background rectangle coordinates
+    bg_left = p1[0]
+    bg_top = p1[1] - bg_height - 1 if p1[1] - bg_height - 1 > 0 else p1[1]
+    bg_right = bg_left + bg_width
+    bg_bottom = bg_top + bg_height
+
+    # Calculate text position
+    text_left = bg_left + padding
+    text_bottom = bg_bottom - padding - baseline
+
+    # Draw rectangle
+    cv2.rectangle(frame, p1, p2, color, thickness=1, lineType=cv2.LINE_AA)
+    # Draw background rectangle
+    cv2.rectangle(frame, (bg_left, bg_top-15), (bg_right, bg_bottom), color, -1, cv2.LINE_AA)
+    # Draw text
+    cv2.putText(
+        frame,
+        label,
+        (text_left, text_bottom),
+        font,
+        font_scale,
+        (255, 255, 255),
+        font_thickness,
+        lineType=cv2.LINE_AA,
+    )
+
 def send_screenshot(screenshot_path):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     send_screenshot_script = os.path.join(script_dir, "send_screenshot_pengawasan_operator.py")
@@ -144,7 +212,36 @@ def is_box_in_area(box, area_points):
     result = cv2.pointPolygonTest(np.array(area_points), box_center, False)
     
     return result >= 0  # If result is 1 or 0, the point is inside or on the edge of the polygon
- 
+
+
+# Function to check if a point is inside a polygon
+def point_in_polygon(x, y, polygon):
+    n = len(polygon)
+    inside = False
+    p1x, p1y = polygon[0]
+    for i in range(n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
+
+# Function to check if the bounding box intersects with any excluded areas
+def intersects_excluded_area(x1, y1, x2, y2, excluded_areas):
+    box_corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    for area_name, area in excluded_areas.items():
+        if 'coords' in area:
+            polygon = area['coords']
+            for corner in box_corners:
+                if point_in_polygon(corner[0], corner[1], polygon):
+                    return True
+    return False
+
 def main():
     parser = argparse.ArgumentParser(description="AI-based operator monitoring system.")
     default_directory = os.getcwd()
@@ -152,7 +249,8 @@ def main():
     parser.add_argument("--machine_id", type=int, default=1, help="ID of the machine being monitored")
     parser.add_argument("--yolo-model", type=str, default="yolov8m.pt", help="YOLO model file to use")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
-    parser.add_argument("--conf", type=float, default=0.1, help="Confidence threshold for object detection")
+    parser.add_argument("--conf", type=float, default=0.01, help="Confidence threshold for object detection")
+    parser.add_argument("--save_vid", action='store_true', help="Save the video stream to a file")
     args = parser.parse_args()
     
     setup_database(args.script_dir)
@@ -175,41 +273,69 @@ def main():
         print("Error: Could not open video stream.")
         exit()
 
+    if args.save_vid:
+        current_time_seconds = datetime.now().strftime("%H_%M_%S")
+        output_file = f'{today_date}_{current_time_seconds}.mp4'
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4 format
+        fps_video_cap = 30.0  # Frames per second
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        out = cv2.VideoWriter(output_file, fourcc, fps_video_cap, (frame_width, frame_height))
+
     prev_time = time.time()
     fps = 0
 
     areas = {
         'Panel induk engine room': {
-            'coords': ([0, 0], [700, 0], [700, 850], [0, 850]),
+            'coords': ([100, 100], [850, 100], [850, 950], [100, 950]),
             'title': "Panel induk engine room",
             'color': (0, 0, 255),
             'count': 0,
-            'duration': 0
+            'duration': 0,
         },
         'Genset': {
-            'coords': ([930, 0], [1400, 0], [1400, 190], [930, 190]),
+            'coords': ([1000, 0], [1600, 0], [1600, 190], [1000, 190]),
             'title': "Genset",
             'color': (255, 0, 0),
             'count': 0,
-            'duration': 0
+            'duration': 0,
         },
         'Turbin & Area Meja Kursi': {
-            'coords': ([930, 200], [1700, 200], [1700, 1000], [930, 1000]),
+            'coords': ([1100, 200], [1700, 200], [1700, 1000], [1100, 1000]),
             'title': "Turbin & Area Meja Kursi",
             'color': (0, 255, 0),
             'count': 0,
-            'duration': 0
+            'duration': 0,
         },
         'No Person': {
             'title': "No Person",
-            'duration': 0
-        }
+            'duration': 0,
+        },
+        'Exclude 1': {
+            'title': "Exclude 1",
+            'coords': ([550, 30], [900, 30], [900, 300], [550, 300]),
+            'must_detect' : False,
+            'count' : 0,
+            'duration': 0,
+            'color': (0, 0, 0),
+        },
+         'Exclude 2': {
+            'title': "Exclude 2",
+            'coords': ([1500, 250], [1980, 250], [1980, 600], [1500, 600]),
+            'must_detect' : False,
+            'count' : 0,
+            'duration': 0,
+            'color': (0, 0, 0),
+        },
+        'Exclude 3': {
+            'title': "Exclude 3",
+            'coords': ([0, 700], [300, 700], [300, 1000], [0, 1000]),
+            'must_detect' : False,
+            'count' : 0,
+            'duration': 0,
+            'color': (0, 0, 0),
+        },
     }
-
-    # ex_areas = [
-    #     {"name": "Area 1", "points":  [730, 300], [1500, 300], [1500, 1200], [230, 900]}  # Example rectangle
-    #     # Add more areas as needed
-    # ]
 
     for area in areas.values():
         if 'coords' in area:
@@ -235,7 +361,7 @@ def main():
                 if area_data['area'] == 'No Person':
                     total_unattended_time = time_to_seconds(area_data['time'])
 
-    save_interval = timedelta(seconds=30, minutes=0)
+    save_interval = timedelta(seconds=60, minutes=0)
     last_save_time = datetime.now()
 
     while True:
@@ -260,67 +386,79 @@ def main():
 
         detected_areas = set()  # Keep track of areas where objects are detected
         area_detected = {name: False for name in areas}
-        color = (0,255,0)
 
         for result in results[0].boxes.data:
             x1, y1, x2, y2, conf, class_id = result.tolist()[:6]
             
-            if int(class_id) == 0 and conf > 0.30:
+            if int(class_id) == 0 :
                 person_detected = True
                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
 
+                inside_must_detect_area = False
+                inside_excluded_area = False
+                
                 for area_name, area in areas.items():
-                    if 'coords' in area and (area['y_min'] < center_y < area['y_max'] and area['x_min'] < center_x < area['x_max']):
-                        area['count'] += 1
-                        # area['duration'] += elapsed_time
-                        area_detected[area_name] = True
-                        detected_areas.add(area_name)
+                    if 'coords' in area:
+                        if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:
+                            if 'must_detect' in area and not area['must_detect']:
+                                inside_excluded_area = True
+                            else:
+                                inside_must_detect_area = True
+                                area['count'] += 1
+                                area_detected[area_name] = True
+                                detected_areas.add(area_name)
+                            break
 
-                        p1 = (int(x1), int(y1))  # top-left corner
-                        p2 = (int(x2), int(y2))  # bottom-right corner  
-                        cv2.rectangle(frame, p1, p2, color, thickness=1, lineType=cv2.LINE_AA)
+                # Draw the box if not inside an excluded area
+                if not intersects_excluded_area(x1, y1, x2, y2, {k: v for k, v in areas.items() if k.startswith('Exclude')}):
+                    color = area.get('color', (255, 255, 255))
+                    label = f"{class_names[class_id]} {conf:.2f}"
+                    p1 = (int(x1), int(y1))  # top-left corner
+                    p2 = (int(x2), int(y2))  # bottom-right corner
+                    draw_box(frame, p1, p2, label, color)
+                          
+                # p1 = (int(x1), int(y1))  # top-left corner
+                # p2 = (int(x2), int(y2))  # bottom-right corner  
+                # # Adjust text parameters
+                # label = f"{class_names[class_id]} {conf:.2f}"
+                
+                # font = cv2.FONT_HERSHEY_SIMPLEX
+                # font_scale = 1
+                # font_thickness = 2
+                
+                # # Get text size
+                # (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
+                
+                # # Calculate background rectangle dimensions
+                # padding = 0
+                # bg_width = text_width + 2 * padding
+                # bg_height = text_height + 2 * padding
 
-                        # Adjust text parameters
-                        label = f"{class_names[class_id]} {conf:.2f}"
+                # # Calculate background rectangle coordinates
+                # bg_left = p1[0]
+                # bg_top = p1[1] - bg_height - 1 if p1[1] - bg_height - 1 > 0 else p1[1]
+                # bg_right = bg_left + bg_width
+                # bg_bottom = bg_top + bg_height
 
+                # # Calculate text position
+                # text_left = bg_left + padding
+                # text_bottom = bg_bottom - padding - baseline
+
+                # cv2.rectangle(frame, p1, p2, color, thickness=1, lineType=cv2.LINE_AA)
+                # # Draw background rectangle
+                # cv2.rectangle(frame, (bg_left, bg_top-15), (bg_right, bg_bottom), color, -1, cv2.LINE_AA)
+                # # Draw text
+                # cv2.putText(
+                #     frame,
+                #     label,
+                #     (text_left, text_bottom),
+                #     font,
+                #     font_scale,
+                #     (255, 255, 255),
+                #     font_thickness,
+                #     lineType=cv2.LINE_AA,
+                # )
                         
-                        font = cv2.FONT_HERSHEY_SIMPLEX
-                        font_scale = 1
-                        font_thickness = 2
-                        
-                        # Get text size
-                        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
-                        
-                        # Calculate background rectangle dimensions
-                        padding = 0
-                        bg_width = text_width + 2 * padding
-                        bg_height = text_height + 2 * padding
-
-                        # Calculate background rectangle coordinates
-                        bg_left = p1[0]
-                        bg_top = p1[1] - bg_height - 1 if p1[1] - bg_height - 1 > 0 else p1[1]
-                        bg_right = bg_left + bg_width
-                        bg_bottom = bg_top + bg_height
-
-                        # Draw background rectangle
-                        cv2.rectangle(frame, (bg_left, bg_top-15), (bg_right, bg_bottom), color, -1, cv2.LINE_AA)
-
-                        # Calculate text position
-                        text_left = bg_left + padding
-                        text_bottom = bg_bottom - padding - baseline
-
-                        # Draw text
-                        cv2.putText(
-                            frame,
-                            label,
-                            (text_left, text_bottom),
-                            font,
-                            font_scale,
-                            (255, 255, 255),
-                            font_thickness,
-                            lineType=cv2.LINE_AA,
-                        )
-                        break
             #####
             
         for area_name, detected in area_detected.items():
@@ -363,6 +501,9 @@ def main():
         cv2.putText(annotated_frame, f'imgsz: {args.imgsz}, conf: {args.conf}, model: {args.yolo_model}', (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
         cv2.imshow(window_name, annotated_frame)
 
+        if args.save_vid:
+            out.write(annotated_frame)
+            
         if (current_time - last_save_time) >= save_interval:
             save_to_database()
             last_save_time = current_time
@@ -371,6 +512,8 @@ def main():
             break
 
     cap.release()
+    if args.save_vid:
+        out.release()
     cv2.destroyAllWindows()
     conn.close()
 
