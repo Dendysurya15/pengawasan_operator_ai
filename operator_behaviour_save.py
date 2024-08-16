@@ -102,20 +102,20 @@ def save_to_database():
 
     
     uptime_json = json.dumps(uptime_data)
-    print(uptime_json)
-    # cursor.execute('''
-    #     UPDATE pengawasan_operator 
-    #     SET uptime = ? 
-    #     WHERE date = ? AND machine_id = ?
-    # ''', (uptime_json, today_date, machine_id))
     
-    # if cursor.rowcount == 0:
-    #     cursor.execute('''
-    #         INSERT INTO pengawasan_operator (date, machine_id, uptime)
-    #         VALUES (?, ?, ?)
-    #     ''', (today_date, machine_id, uptime_json))
+    cursor.execute('''
+        UPDATE pengawasan_operator 
+        SET uptime = ? 
+        WHERE date = ? AND machine_id = ?
+    ''', (uptime_json, today_date, machine_id))
     
-    # conn.commit()
+    if cursor.rowcount == 0:
+        cursor.execute('''
+            INSERT INTO pengawasan_operator (date, machine_id, uptime)
+            VALUES (?, ?, ?)
+        ''', (today_date, machine_id, uptime_json))
+    
+    conn.commit()
     print(f"Data successfully updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 def capture_screenshot(annotated_frame, screenshot_dir, compression_quality = 80):
@@ -313,8 +313,8 @@ def main():
             'duration': 0,
         },
          'Room': {
-            'coords': ([0, 0], [200, 0], [200, 200], [0, 200]),
-            'color': (170, 255, 180),
+            # 'coords': ([0, 0], [200, 0], [200, 200], [0, 200]),
+            # 'color': (170, 255, 180),
             'title': "Room",
             'count' : 0,
             'duration': 0,
@@ -353,7 +353,7 @@ def main():
         },
         'Exclude 5': {
             'title': "Exclude 5",
-            'coords': ([1500, 0], [1600, 0], [1600, 200], [1500, 200]),
+            'coords': ([1500, 0], [1600, 0], [1600, 100], [1500, 100]),
             'must_detect' : False,
             'count' : 0,
             'duration': 0,
@@ -382,10 +382,10 @@ def main():
             if area_data['area'] in areas:
                 areas[area_data['area']]['duration'] = time_to_seconds(area_data['time'])
 
-                if area_data['area'] == 'No Person':
+                if area_data['area'] == 'Total Unattended':
                     total_unattended_time = time_to_seconds(area_data['time'])
 
-    save_interval = timedelta(seconds=5, minutes=0)
+    save_interval = timedelta(seconds=60, minutes=0)
     last_save_time = datetime.now()
 
     while True:
@@ -409,48 +409,49 @@ def main():
                 area['count'] = 0
 
         detected_areas = set()  # Keep track of areas where objects are detected
-        area_detected = {name: False for name in areas}
 
         for result in results[0].boxes.data:
             x1, y1, x2, y2, conf, class_id = result.tolist()[:6]
             
-            if int(class_id) == 0 :
+            if int(class_id) == 0 and conf > 0.15:
                 person_detected = True
                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
-
-                inside_any_area = False  # To track if the person is inside any defined area
-                inside_excluded_area = False
                 
+                inside_any_area = False
+                inside_excluded_area = intersects_excluded_area(x1, y1, x2, y2, {k: v for k, v in areas.items() if k.startswith('Exclude')})
+
                 for area_name, area in areas.items():
-                    if 'coords' in area:
-                        if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:          
-                            area['count'] += 1
-                            area_detected[area_name] = True
-                            detected_areas.add(area_name)
+                    if 'coords' in area and not inside_excluded_area:
+                        if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:
+                            # Object is inside an allowed area
+                            areas[area_name]['count'] += 1
                             inside_any_area = True
+                            
+                            # Draw the box with the area's specific color
+                            color = area.get('color', (255, 255, 255))
+                            label = f"{class_names[class_id]} {conf:.2f}"
+                            p1 = (int(x1), int(y1))  # top-left corner
+                            p2 = (int(x2), int(y2))  # bottom-right corner
+                            draw_box(frame, p1, p2, label, color)
+                            detected_areas.add(area_name)  # Mark this area as having a detection
                             break
 
-                inside_excluded_area = intersects_excluded_area(x1, y1, x2, y2, {k: v for k, v in areas.items() if k.startswith('Exclude')})
-        
-                # If the person is not inside any defined or excluded area
+                # If the object is not inside any allowed area but is not in an excluded area, count it in 'Room'
                 if not inside_any_area and not inside_excluded_area:
-                    if 'Room' in areas and areas['Room']['count'] == 0:
-                        areas['Room']['count'] += 1
-                        areas['Room']['duration'] += elapsed_time
+                    areas['Room']['count'] += 1
+                    detected_areas.add('Room')  # Mark the 'Room' area as having a detection
                     
-                # Draw the box if not inside an excluded area
-                if not inside_excluded_area:
-                    color = area.get('color', (255, 255, 255))
+                    # Draw the box with the 'Room' area's color
+                    color = areas['Room'].get('color', (170, 255, 180))
                     label = f"{class_names[class_id]} {conf:.2f}"
                     p1 = (int(x1), int(y1))  # top-left corner
                     p2 = (int(x2), int(y2))  # bottom-right corner
                     draw_box(frame, p1, p2, label, color)
-                          
-            
-        for area_name, detected in area_detected.items():
-            if detected:
-                areas[area_name]['duration'] += elapsed_time
-            #####
+
+        # Only update duration for areas where objects were detected
+        for area_name in detected_areas:
+            areas[area_name]['duration'] += elapsed_time
+
         if not person_detected:
             if unattended_start_time is None:
                 unattended_start_time = current_time
