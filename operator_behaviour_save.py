@@ -94,27 +94,28 @@ def save_to_database():
     uptime_data = [
         {"area": areas[area]['title'], "time": format_time(areas[area]['duration'])}
         for area in areas
-        if area != 'No Person' and (areas[area].get('must_detect', True) is True)
+        if area != 'Total Unattended' and (areas[area].get('must_detect', True) is True)
     ]
 
-    if 'No Person' in areas:
-        uptime_data.append({"area": areas['No Person']['title'], "time": format_time(total_unattended_time)})
+    if 'Total Unattended' in areas:
+        uptime_data.append({"area": areas['Total Unattended']['title'], "time": format_time(total_unattended_time)})
 
+    
     uptime_json = json.dumps(uptime_data)
+    print(uptime_json)
+    # cursor.execute('''
+    #     UPDATE pengawasan_operator 
+    #     SET uptime = ? 
+    #     WHERE date = ? AND machine_id = ?
+    # ''', (uptime_json, today_date, machine_id))
     
-    cursor.execute('''
-        UPDATE pengawasan_operator 
-        SET uptime = ? 
-        WHERE date = ? AND machine_id = ?
-    ''', (uptime_json, today_date, machine_id))
+    # if cursor.rowcount == 0:
+    #     cursor.execute('''
+    #         INSERT INTO pengawasan_operator (date, machine_id, uptime)
+    #         VALUES (?, ?, ?)
+    #     ''', (today_date, machine_id, uptime_json))
     
-    if cursor.rowcount == 0:
-        cursor.execute('''
-            INSERT INTO pengawasan_operator (date, machine_id, uptime)
-            VALUES (?, ?, ?)
-        ''', (today_date, machine_id, uptime_json))
-    
-    conn.commit()
+    # conn.commit()
     print(f"Data successfully updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 def capture_screenshot(annotated_frame, screenshot_dir, compression_quality = 80):
@@ -307,13 +308,20 @@ def main():
             'count': 0,
             'duration': 0,
         },
-        'No Person': {
-            'title': "No Person",
+        'Total Unattended': {
+            'title': "Total Unattended",
+            'duration': 0,
+        },
+         'Room': {
+            'coords': ([0, 0], [200, 0], [200, 200], [0, 200]),
+            'color': (170, 255, 180),
+            'title': "Room",
+            'count' : 0,
             'duration': 0,
         },
         'Exclude 1': {
             'title': "Exclude 1",
-            'coords': ([550, 30], [900, 30], [900, 300], [550, 300]),
+            'coords': ([500, 30], [800, 30], [800, 200], [500, 200]),
             'must_detect' : False,
             'count' : 0,
             'duration': 0,
@@ -330,6 +338,22 @@ def main():
         'Exclude 3': {
             'title': "Exclude 3",
             'coords': ([0, 700], [300, 700], [300, 1000], [0, 1000]),
+            'must_detect' : False,
+            'count' : 0,
+            'duration': 0,
+            'color': (0, 0, 0),
+        },
+        'Exclude 4': {
+            'title': "Exclude 4",
+            'coords': ([0, 0], [100, 0], [100, 1000], [0, 1000]),
+            'must_detect' : False,
+            'count' : 0,
+            'duration': 0,
+            'color': (0, 0, 0),
+        },
+        'Exclude 5': {
+            'title': "Exclude 5",
+            'coords': ([1500, 0], [1600, 0], [1600, 200], [1500, 200]),
             'must_detect' : False,
             'count' : 0,
             'duration': 0,
@@ -361,7 +385,7 @@ def main():
                 if area_data['area'] == 'No Person':
                     total_unattended_time = time_to_seconds(area_data['time'])
 
-    save_interval = timedelta(seconds=60, minutes=0)
+    save_interval = timedelta(seconds=5, minutes=0)
     last_save_time = datetime.now()
 
     while True:
@@ -394,72 +418,34 @@ def main():
                 person_detected = True
                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
 
-                inside_must_detect_area = False
+                inside_any_area = False  # To track if the person is inside any defined area
                 inside_excluded_area = False
                 
                 for area_name, area in areas.items():
                     if 'coords' in area:
-                        if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:
-                            if 'must_detect' in area and not area['must_detect']:
-                                inside_excluded_area = True
-                            else:
-                                inside_must_detect_area = True
-                                area['count'] += 1
-                                area_detected[area_name] = True
-                                detected_areas.add(area_name)
+                        if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:          
+                            area['count'] += 1
+                            area_detected[area_name] = True
+                            detected_areas.add(area_name)
+                            inside_any_area = True
                             break
 
+                inside_excluded_area = intersects_excluded_area(x1, y1, x2, y2, {k: v for k, v in areas.items() if k.startswith('Exclude')})
+        
+                # If the person is not inside any defined or excluded area
+                if not inside_any_area and not inside_excluded_area:
+                    if 'Room' in areas and areas['Room']['count'] == 0:
+                        areas['Room']['count'] += 1
+                        areas['Room']['duration'] += elapsed_time
+                    
                 # Draw the box if not inside an excluded area
-                if not intersects_excluded_area(x1, y1, x2, y2, {k: v for k, v in areas.items() if k.startswith('Exclude')}):
+                if not inside_excluded_area:
                     color = area.get('color', (255, 255, 255))
                     label = f"{class_names[class_id]} {conf:.2f}"
                     p1 = (int(x1), int(y1))  # top-left corner
                     p2 = (int(x2), int(y2))  # bottom-right corner
                     draw_box(frame, p1, p2, label, color)
                           
-                # p1 = (int(x1), int(y1))  # top-left corner
-                # p2 = (int(x2), int(y2))  # bottom-right corner  
-                # # Adjust text parameters
-                # label = f"{class_names[class_id]} {conf:.2f}"
-                
-                # font = cv2.FONT_HERSHEY_SIMPLEX
-                # font_scale = 1
-                # font_thickness = 2
-                
-                # # Get text size
-                # (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
-                
-                # # Calculate background rectangle dimensions
-                # padding = 0
-                # bg_width = text_width + 2 * padding
-                # bg_height = text_height + 2 * padding
-
-                # # Calculate background rectangle coordinates
-                # bg_left = p1[0]
-                # bg_top = p1[1] - bg_height - 1 if p1[1] - bg_height - 1 > 0 else p1[1]
-                # bg_right = bg_left + bg_width
-                # bg_bottom = bg_top + bg_height
-
-                # # Calculate text position
-                # text_left = bg_left + padding
-                # text_bottom = bg_bottom - padding - baseline
-
-                # cv2.rectangle(frame, p1, p2, color, thickness=1, lineType=cv2.LINE_AA)
-                # # Draw background rectangle
-                # cv2.rectangle(frame, (bg_left, bg_top-15), (bg_right, bg_bottom), color, -1, cv2.LINE_AA)
-                # # Draw text
-                # cv2.putText(
-                #     frame,
-                #     label,
-                #     (text_left, text_bottom),
-                #     font,
-                #     font_scale,
-                #     (255, 255, 255),
-                #     font_thickness,
-                #     lineType=cv2.LINE_AA,
-                # )
-                        
-            #####
             
         for area_name, detected in area_detected.items():
             if detected:
@@ -471,7 +457,7 @@ def main():
             if (current_time - unattended_start_time).total_seconds() >= unattended_threshold:
                 total_unattended_time += elapsed_time
                 unattended_watcher += elapsed_time
-                areas['No Person']['duration'] = total_unattended_time
+                areas['Total Unattended']['duration'] = total_unattended_time
                 if unattended_watcher >= threshold_call_bot.total_seconds():
 
                     screenshot_dir = "screenshots"
@@ -485,7 +471,7 @@ def main():
             if unattended_start_time is not None:
                 unattended_start_time = None
             unattended_watcher = 0
-            areas['No Person']['duration'] = 0
+            areas['Total Unattended']['duration'] = 0
 
         annotated_frame = frame
         for area_name, area in areas.items():
