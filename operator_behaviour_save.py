@@ -250,6 +250,17 @@ def intersects_excluded_area(x1, y1, x2, y2, excluded_areas):
                     return True
     return False
 
+def update_last_online_machine_id(machine_id):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        # Construct the full path to the Python script
+        script_path = os.path.join(script_dir, 'update_last_online_machine_id.py')
+        
+        # Call the script with the constructed path using the same Python interpreter
+        subprocess.run([sys.executable, script_path, str(machine_id)], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while updating the machine_id: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="AI-based operator monitoring system.")
     default_directory = os.getcwd()
@@ -257,7 +268,7 @@ def main():
     parser.add_argument("--machine_id", type=int, default=1, help="ID of the machine being monitored")
     parser.add_argument("--yolo-model", type=str, default="yolov8m.pt", help="YOLO model file to use")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
-    parser.add_argument("--conf", type=float, default=0.9, help="Confidence threshold for object detection")
+    parser.add_argument("--conf", type=float, default=0.01, help="Confidence threshold for object detection")
     parser.add_argument("--save_vid", action='store_true', help="Save the video stream to a file")
     args = parser.parse_args()
     
@@ -344,7 +355,7 @@ def main():
         },
         'Exclude 3': {
             'title': "Exclude 3",
-            'coords': ([0, 700], [300, 700], [300, 1000], [0, 1000]),
+            'coords': ([0, 700], [250, 700], [250, 1000], [0, 1000]),
             'must_detect' : False,
             'count' : 0,
             'duration': 0,
@@ -502,6 +513,7 @@ def main():
             
         if (current_time - last_save_time) >= save_interval:
             save_to_database()
+            update_last_online_machine_id(machine_id)
             last_save_time = current_time
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
