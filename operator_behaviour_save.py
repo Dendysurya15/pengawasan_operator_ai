@@ -191,12 +191,19 @@ def draw_box(frame, p1, p2, label, color):
         lineType=cv2.LINE_AA,
     )
 
-def send_screenshot(screenshot_path):
+def send_screenshot(screenshot_path, **kwargs):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     send_screenshot_script = os.path.join(script_dir, "send_screenshot_pengawasan_operator.py")
 
+    # Convert the kwargs into command-line arguments
+    extra_args = []
+    for key, value in kwargs.items():
+        extra_args.append(f"--{key}")
+        extra_args.append(str(value))
+    
     try:
-        subprocess.run([sys.executable, send_screenshot_script, "--file", screenshot_path], check=True)
+        # Include the extra_args in the subprocess call
+        subprocess.run([sys.executable, send_screenshot_script, "--file", screenshot_path] + extra_args, check=True)
         print("Screenshot sent successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error sending screenshot: {e}")
@@ -250,7 +257,7 @@ def main():
     parser.add_argument("--machine_id", type=int, default=1, help="ID of the machine being monitored")
     parser.add_argument("--yolo-model", type=str, default="yolov8m.pt", help="YOLO model file to use")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
-    parser.add_argument("--conf", type=float, default=0.01, help="Confidence threshold for object detection")
+    parser.add_argument("--conf", type=float, default=0.9, help="Confidence threshold for object detection")
     parser.add_argument("--save_vid", action='store_true', help="Save the video stream to a file")
     args = parser.parse_args()
     
@@ -372,7 +379,7 @@ def main():
 
     unattended_start_time = None
     unattended_threshold = 5  # seconds
-    threshold_call_bot = timedelta(minutes=15)  
+    threshold_call_bot = timedelta(minutes=5)  
     total_unattended_time = 0
     unattended_watcher = 0
     existing_data = get_existing_data()
@@ -414,7 +421,7 @@ def main():
             x1, y1, x2, y2, conf, class_id = result.tolist()[:6]
             
             if int(class_id) == 0 and conf > 0.15:
-                person_detected = True
+                
                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
                 
                 inside_any_area = False
@@ -424,6 +431,7 @@ def main():
                     if 'coords' in area and not inside_excluded_area:
                         if area['coords'][0][1] < center_y < area['coords'][2][1] and area['coords'][0][0] < center_x < area['coords'][2][0]:
                             # Object is inside an allowed area
+                            person_detected = True
                             areas[area_name]['count'] += 1
                             inside_any_area = True
                             
@@ -438,6 +446,7 @@ def main():
 
                 # If the object is not inside any allowed area but is not in an excluded area, count it in 'Room'
                 if not inside_any_area and not inside_excluded_area:
+                    person_detected = True
                     areas['Room']['count'] += 1
                     detected_areas.add('Room')  # Mark the 'Room' area as having a detection
                     
@@ -464,7 +473,7 @@ def main():
                     screenshot_dir = "screenshots"
                     compression_quality = 60
                     file_name, screenshot_path = capture_screenshot(annotated_frame, screenshot_dir, compression_quality)
-                    send_screenshot(screenshot_path)
+                    send_screenshot(screenshot_path,date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S"), machine_id = machine_id)
                     time.sleep(1.5) 
                     hit_api_bot(file_name)
                     unattended_watcher = 0
