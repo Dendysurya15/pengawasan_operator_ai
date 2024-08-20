@@ -390,7 +390,7 @@ def main():
 
     unattended_start_time = None
     unattended_threshold = 5  # seconds
-    threshold_call_bot = timedelta(minutes=5)  
+    threshold_call_bot = timedelta(minutes=15)  
     total_unattended_time = 0
     unattended_watcher = 0
     existing_data = get_existing_data()
