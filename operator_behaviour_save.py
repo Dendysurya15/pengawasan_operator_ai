@@ -13,7 +13,7 @@ import os
 import pusher
 
 pusher_client = pusher.Pusher(app_id=u'1841216', key=u'b193dcd8922273835547', secret=u'5e39e309c9ee6a995b84', cluster=u'ap1')
-
+snooze_bot_active = False
 
 def setup_database(script_dir):
     try:
@@ -191,6 +191,33 @@ def draw_box(frame, p1, p2, label, color):
         lineType=cv2.LINE_AA,
     )
 
+
+def check_snooze_bot(machine_id):
+    global snooze_bot_active 
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        # Construct the full path to the Python script
+        script_path = os.path.join(script_dir, 'check_snooze_bot_machine.py')
+        
+        # Call the script and capture its output
+        result = subprocess.run([sys.executable, script_path, str(machine_id)], 
+                                check=True, capture_output=True, text=True)
+        # Parse the JSON output
+        output = result.stdout
+        response_json = json.loads(output)
+        status = response_json.get('status', 'No status key found')
+        
+        # Print or use the status as needed
+        print(f"Status Snooze for Machine ID {machine_id}: {status}")
+        snooze_bot_active = status
+        return status
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while updating the machine_id: {e}")
+        return None
+    except json.JSONDecodeError:
+        print("Failed to decode JSON from subprocess output.")
+        return None
+
 def send_screenshot(screenshot_path, **kwargs):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     send_screenshot_script = os.path.join(script_dir, "send_screenshot_pengawasan_operator.py")
@@ -274,7 +301,7 @@ def main():
     
     setup_database(args.script_dir)
 
-    global conn, cursor, model, today_date, machine_id, ip_camera_url, cap, areas, window_name, unattended_start_time, unattended_threshold, threshold_call_bot, total_unattended_time, unattended_watcher, existing_data, save_interval, last_save_time
+    global conn, cursor, model, today_date, machine_id, ip_camera_url, cap, areas, window_name, unattended_start_time, unattended_threshold, threshold_call_bot, total_unattended_time, unattended_watcher, existing_data, save_interval, last_save_time, snooze_bot_active
 
     conn = sqlite3.connect('operator_behaviour.db')
     cursor = conn.cursor()
@@ -405,6 +432,7 @@ def main():
 
     save_interval = timedelta(seconds=60, minutes=0)
     last_save_time = datetime.now()
+    last_check_time = datetime.now()
 
     while True:
         ret, frame = cap.read()
@@ -413,7 +441,6 @@ def main():
             print("Error: Failed to retrieve frame.")
             break
 
-        start_time = time.time()
         results = model.predict(frame, classes=[0], imgsz=args.imgsz, conf=args.conf, verbose=False)
         class_names = model.names  # This returns a list of class names
 
@@ -421,6 +448,10 @@ def main():
         current_time = datetime.now()
         elapsed_time = (current_time - datetime.fromtimestamp(prev_time)).total_seconds()
         prev_time = current_time.timestamp()
+
+        if (current_time - last_check_time) >= timedelta(hours=1):
+            check_snooze_bot(machine_id)
+            last_check_time = current_time
 
         for area in areas.values():
             if 'count' in area:
@@ -479,8 +510,7 @@ def main():
                 total_unattended_time += elapsed_time
                 unattended_watcher += elapsed_time
                 areas['Total Unattended']['duration'] = total_unattended_time
-                if unattended_watcher >= threshold_call_bot.total_seconds():
-
+                if unattended_watcher >= threshold_call_bot.total_seconds() and not snooze_bot_active:
                     screenshot_dir = "screenshots"
                     compression_quality = 60
                     file_name, screenshot_path = capture_screenshot(annotated_frame, screenshot_dir, compression_quality)
